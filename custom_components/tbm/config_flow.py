@@ -110,18 +110,17 @@ class TBMConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         # Construire la liste des arrêts pour la sélection
         stop_options: list[dict[str, str]] = []
-        seen_names: dict[str, int] = {}
 
         for stop in self._stops:
-            # Ajouter un suffixe si le nom est dupliqué
-            base_name = stop.name
-            if base_name in seen_names:
-                seen_names[base_name] += 1
-                display_name = f"{base_name} ({seen_names[base_name]})"
-            else:
-                seen_names[base_name] = 1
-                display_name = base_name
-
+            # Extraire le numéro de l'arrêt depuis l'ID (ex: bordeaux:StopPoint:BP:7132:LOC -> 7132)
+            stop_num = ""
+            if stop.id and ":" in stop.id:
+                parts = stop.id.split(":")
+                if len(parts) >= 4:
+                    stop_num = parts[3]
+            
+            # Afficher le nom avec le numéro d'arrêt pour identifier facilement
+            display_name = f"{stop.name} (ID: {stop_num})"
             stop_options.append({"value": stop.id, "label": display_name})
 
         _LOGGER.debug("Options d'arrêts: %d", len(stop_options))
