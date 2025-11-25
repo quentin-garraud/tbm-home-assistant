@@ -5,7 +5,6 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-import aiohttp
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -48,7 +47,7 @@ class TBMDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Grouper par ligne et direction
             grouped: dict[str, list[TBMDeparture]] = {}
             for dep in departures:
-                key = f"{dep.line}_{dep.destination}"
+                key = f"{dep.line_name}_{dep.destination}"
                 if key not in grouped:
                     grouped[key] = []
                 grouped[key].append(dep)
@@ -63,4 +62,3 @@ class TBMDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         except TBMApiError as err:
             raise UpdateFailed(f"Erreur lors de la mise à jour: {err}") from err
-

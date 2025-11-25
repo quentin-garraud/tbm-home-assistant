@@ -2,23 +2,24 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configurer un arrêt TBM",
-        "description": "Entrez l'identifiant de l'arrêt TBM ou son nom.\n\nExemple: {example_stop}",
+        "title": "Rechercher un arrêt TBM",
+        "description": "Entrez le nom de l'arrêt à rechercher.\n\nExemple: {example}",
         "data": {
-          "stop_id": "Identifiant ou nom de l'arrêt"
+          "query": "Nom de l'arrêt"
         }
       },
-      "line": {
-        "title": "Sélectionner une ligne",
-        "description": "Arrêt sélectionné: {stop_name}\n\nChoisissez une ligne spécifique ou toutes les lignes.",
+      "select_stop": {
+        "title": "Sélectionner un arrêt",
+        "description": "{count} arrêt(s) trouvé(s). Sélectionnez celui que vous souhaitez ajouter.",
         "data": {
-          "line_id": "Ligne"
+          "stop_id": "Arrêt"
         }
       }
     },
     "error": {
       "cannot_connect": "Impossible de se connecter à l'API TBM",
-      "stop_not_found": "Arrêt non trouvé. Vérifiez l'identifiant ou le nom.",
+      "stop_not_found": "Aucun arrêt trouvé. Essayez avec un autre nom.",
+      "query_too_short": "Le nom doit contenir au moins 2 caractères.",
       "unknown": "Erreur inattendue"
     },
     "abort": {
@@ -41,4 +42,3 @@
     }
   }
 }
-

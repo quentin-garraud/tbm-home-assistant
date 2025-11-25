@@ -6,18 +6,19 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    ATTR_AIMED_TIME,
     ATTR_DEPARTURE_TIME,
     ATTR_DESTINATION,
+    ATTR_EXPECTED_TIME,
     ATTR_LINE,
     ATTR_NEXT_DEPARTURES,
     ATTR_REALTIME,
     ATTR_STOP_NAME,
-    ATTR_VEHICLE_TYPE,
     ATTR_WAITING_TIME,
     CONF_LINE_ID,
     CONF_STOP_ID,
@@ -72,7 +73,7 @@ class TBMBaseSensor(CoordinatorEntity[TBMDataUpdateCoordinator], SensorEntity):
         return {
             "identifiers": {(DOMAIN, self._stop_id)},
             "name": f"TBM - {self._stop_name}",
-            "manufacturer": "TBM",
+            "manufacturer": "TBM - Transports Bordeaux Métropole",
             "model": "Arrêt de transport",
         }
 
@@ -102,17 +103,12 @@ class TBMNextDepartureSensor(TBMBaseSensor):
         if not next_dep:
             return "Aucun"
 
-        if next_dep.waiting_time_minutes == 0:
+        if next_dep.waiting_time_minutes <= 0:
             return "Imminent"
         elif next_dep.waiting_time_minutes == 1:
             return "1 min"
         else:
             return f"{next_dep.waiting_time_minutes} min"
-
-    @property
-    def native_unit_of_measurement(self) -> str | None:
-        """Pas d'unité car la valeur inclut déjà l'unité."""
-        return None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -128,35 +124,37 @@ class TBMNextDepartureSensor(TBMBaseSensor):
         if next_dep:
             attrs.update(
                 {
-                    ATTR_LINE: next_dep.line,
+                    ATTR_LINE: next_dep.line_name,
                     ATTR_DESTINATION: next_dep.destination,
-                    ATTR_DEPARTURE_TIME: next_dep.departure_time,
                     ATTR_WAITING_TIME: next_dep.waiting_time_minutes,
-                    ATTR_VEHICLE_TYPE: next_dep.vehicle_type,
                     ATTR_REALTIME: next_dep.realtime,
                 }
             )
+            if next_dep.aimed_arrival:
+                attrs[ATTR_AIMED_TIME] = next_dep.aimed_arrival.isoformat()
+            if next_dep.expected_arrival:
+                attrs[ATTR_EXPECTED_TIME] = next_dep.expected_arrival.isoformat()
 
         # Liste des prochains départs
         departures = self.coordinator.data.get("departures", [])
         next_departures = []
         for dep in departures[:5]:  # Limiter à 5
-            next_departures.append(
-                {
-                    "line": dep.line,
-                    "destination": dep.destination,
-                    "waiting_time": dep.waiting_time_minutes,
-                    "departure_time": dep.departure_time,
-                    "realtime": dep.realtime,
-                }
-            )
+            dep_info = {
+                "line": dep.line_name,
+                "destination": dep.destination,
+                "waiting_time": dep.waiting_time_minutes,
+                "realtime": dep.realtime,
+            }
+            if dep.expected_arrival:
+                dep_info["expected_time"] = dep.expected_arrival.isoformat()
+            next_departures.append(dep_info)
         attrs[ATTR_NEXT_DEPARTURES] = next_departures
 
         return attrs
 
     @property
     def icon(self) -> str:
-        """Retourner l'icône basée sur le type de véhicule."""
+        """Retourner l'icône basée sur le type de ligne."""
         if not self.coordinator.data:
             return "mdi:tram"
 
@@ -164,12 +162,15 @@ class TBMNextDepartureSensor(TBMBaseSensor):
         if not next_dep:
             return "mdi:tram"
 
-        vehicle_type = next_dep.vehicle_type.lower()
-        if "bus" in vehicle_type:
-            return "mdi:bus"
-        elif "boat" in vehicle_type or "bateau" in vehicle_type:
+        # Lignes de tram: A, B, C, D (ou 01, 02, 03, 04)
+        line = next_dep.line_name.upper()
+        if line in ("A", "B", "C", "D", "01", "02", "03", "04"):
+            return "mdi:tram"
+        # BatCub (navettes fluviales)
+        if "BAT" in line:
             return "mdi:ferry"
-        return "mdi:tram"
+        # Sinon c'est un bus
+        return "mdi:bus"
 
 
 class TBMLineSensor(TBMBaseSensor):
@@ -188,7 +189,9 @@ class TBMLineSensor(TBMBaseSensor):
         self._line = parts[0] if parts else line_key
         self._direction = parts[1] if len(parts) > 1 else ""
 
-        self._attr_unique_id = f"{self._stop_id}_{line_key}"
+        # Nettoyer l'ID unique
+        safe_key = line_key.replace(":", "_").replace(" ", "_")
+        self._attr_unique_id = f"{self._stop_id}_{safe_key}"
         self._attr_name = f"Ligne {self._line} → {self._direction}"
 
     @property
@@ -204,7 +207,7 @@ class TBMLineSensor(TBMBaseSensor):
             return "Aucun"
 
         dep = departures[0]
-        if dep.waiting_time_minutes == 0:
+        if dep.waiting_time_minutes <= 0:
             return "Imminent"
         elif dep.waiting_time_minutes == 1:
             return "1 min"
@@ -229,13 +232,13 @@ class TBMLineSensor(TBMBaseSensor):
         # Prochains départs pour cette ligne
         next_deps = []
         for dep in departures[:3]:
-            next_deps.append(
-                {
-                    "waiting_time": dep.waiting_time_minutes,
-                    "departure_time": dep.departure_time,
-                    "realtime": dep.realtime,
-                }
-            )
+            dep_info = {
+                "waiting_time": dep.waiting_time_minutes,
+                "realtime": dep.realtime,
+            }
+            if dep.expected_arrival:
+                dep_info["expected_time"] = dep.expected_arrival.isoformat()
+            next_deps.append(dep_info)
         attrs[ATTR_NEXT_DEPARTURES] = next_deps
 
         if departures:
@@ -246,20 +249,10 @@ class TBMLineSensor(TBMBaseSensor):
 
     @property
     def icon(self) -> str:
-        """Retourner l'icône basée sur le type de véhicule."""
-        if not self.coordinator.data:
+        """Retourner l'icône basée sur le type de ligne."""
+        line = self._line.upper()
+        if line in ("A", "B", "C", "D", "01", "02", "03", "04"):
             return "mdi:tram"
-
-        grouped = self.coordinator.data.get("grouped_departures", {})
-        departures = grouped.get(self._line_key, [])
-
-        if not departures:
-            return "mdi:tram"
-
-        vehicle_type = departures[0].vehicle_type.lower()
-        if "bus" in vehicle_type:
-            return "mdi:bus"
-        elif "boat" in vehicle_type or "bateau" in vehicle_type:
+        if "BAT" in line:
             return "mdi:ferry"
-        return "mdi:tram"
-
+        return "mdi:bus"

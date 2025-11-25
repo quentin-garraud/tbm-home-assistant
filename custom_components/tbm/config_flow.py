@@ -4,13 +4,17 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import aiohttp
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
-from .api import TBMApiClient, TBMApiError
+from .api import TBMApiClient, TBMApiError, TBMStop
 from .const import CONF_LINE_ID, CONF_STOP_ID, CONF_STOP_NAME, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,99 +27,108 @@ class TBMConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initialiser le flux de configuration."""
-        self._stop_id: str | None = None
-        self._stop_name: str | None = None
-        self._available_lines: list[dict[str, Any]] = []
+        self._stops: list[TBMStop] = []
+        self._selected_stop: TBMStop | None = None
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Gérer l'étape utilisateur initiale."""
+        """Gérer l'étape utilisateur initiale - recherche d'arrêt."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            stop_id = user_input[CONF_STOP_ID].strip()
+            query = user_input.get("query", "").strip()
 
-            session = async_get_clientsession(self.hass)
-            api = TBMApiClient(session)
+            if len(query) < 2:
+                errors["base"] = "query_too_short"
+            else:
+                session = async_get_clientsession(self.hass)
+                api = TBMApiClient(session)
 
-            try:
-                # Vérifier si c'est un ID d'arrêt valide
-                stop_info = await api.get_stop_info(stop_id)
-                if stop_info and stop_info.name:
-                    self._stop_id = stop_id
-                    self._stop_name = stop_info.name
-                    self._available_lines = stop_info.lines
+                try:
+                    # Rechercher les arrêts correspondants
+                    self._stops = await api.search_stops(query)
 
-                    # Passer à l'étape de sélection de ligne
-                    return await self.async_step_line()
+                    if not self._stops:
+                        errors["base"] = "stop_not_found"
+                    else:
+                        # Passer à l'étape de sélection d'arrêt
+                        return await self.async_step_select_stop()
 
-                # Sinon, essayer de chercher par nom
-                stops = await api.search_stops(stop_id)
-                if stops:
-                    # Pour simplifier, prendre le premier résultat
-                    self._stop_id = stops[0].id
-                    self._stop_name = stops[0].name
-                    self._available_lines = stops[0].lines
-                    return await self.async_step_line()
-
-                errors["base"] = "stop_not_found"
-
-            except TBMApiError:
-                errors["base"] = "cannot_connect"
-            except Exception:  # pylint: disable=broad-except
-                _LOGGER.exception("Erreur inattendue")
-                errors["base"] = "unknown"
+                except TBMApiError:
+                    errors["base"] = "cannot_connect"
+                except Exception:  # pylint: disable=broad-except
+                    _LOGGER.exception("Erreur inattendue")
+                    errors["base"] = "unknown"
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_STOP_ID): str,
+                    vol.Required("query"): str,
                 }
             ),
             errors=errors,
             description_placeholders={
-                "example_stop": "stop_area:TBM:SA:QUIN (Quinconces)"
+                "example": "Berges du Lac, Quinconces, Victoire..."
             },
         )
 
-    async def async_step_line(
+    async def async_step_select_stop(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Gérer l'étape de sélection de ligne (optionnel)."""
+        """Gérer la sélection de l'arrêt parmi les résultats."""
         if user_input is not None:
-            line_id = user_input.get(CONF_LINE_ID)
+            stop_id = user_input[CONF_STOP_ID]
 
-            # Vérifier que cet arrêt n'est pas déjà configuré
-            await self.async_set_unique_id(f"{self._stop_id}_{line_id or 'all'}")
-            self._abort_if_unique_id_configured()
+            # Trouver l'arrêt sélectionné
+            for stop in self._stops:
+                if stop.id == stop_id:
+                    self._selected_stop = stop
+                    break
 
-            return self.async_create_entry(
-                title=f"TBM - {self._stop_name}",
-                data={
-                    CONF_STOP_ID: self._stop_id,
-                    CONF_STOP_NAME: self._stop_name,
-                    CONF_LINE_ID: line_id if line_id != "all" else None,
-                },
-            )
+            if self._selected_stop:
+                # Vérifier que cet arrêt n'est pas déjà configuré
+                await self.async_set_unique_id(stop_id)
+                self._abort_if_unique_id_configured()
 
-        # Construire la liste des lignes disponibles
-        line_options = {"all": "Toutes les lignes"}
-        for line in self._available_lines:
-            line_id = line.get("id", "")
-            line_name = line.get("name", line_id)
-            if line_id:
-                line_options[line_id] = line_name
+                return self.async_create_entry(
+                    title=f"TBM - {self._selected_stop.name}",
+                    data={
+                        CONF_STOP_ID: self._selected_stop.id,
+                        CONF_STOP_NAME: self._selected_stop.name,
+                    },
+                )
+
+        # Construire la liste des arrêts pour la sélection
+        stop_options = []
+        seen_names: dict[str, int] = {}
+
+        for stop in self._stops:
+            # Ajouter un suffixe si le nom est dupliqué
+            base_name = stop.name
+            if base_name in seen_names:
+                seen_names[base_name] += 1
+                display_name = f"{base_name} ({seen_names[base_name]})"
+            else:
+                seen_names[base_name] = 1
+                display_name = base_name
+
+            stop_options.append({"value": stop.id, "label": display_name})
 
         return self.async_show_form(
-            step_id="line",
+            step_id="select_stop",
             data_schema=vol.Schema(
                 {
-                    vol.Required(CONF_LINE_ID, default="all"): vol.In(line_options),
+                    vol.Required(CONF_STOP_ID): SelectSelector(
+                        SelectSelectorConfig(
+                            options=stop_options,
+                            mode=SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
                 }
             ),
-            description_placeholders={"stop_name": self._stop_name},
+            description_placeholders={"count": str(len(self._stops))},
         )
 
 
@@ -137,4 +150,3 @@ class TBMOptionsFlow(config_entries.OptionsFlow):
             step_id="init",
             data_schema=vol.Schema({}),
         )
-

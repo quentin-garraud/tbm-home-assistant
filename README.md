@@ -2,16 +2,17 @@
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
 
-Cette intégration permet de récupérer les horaires en temps réel des trams, bus et bateaux du réseau TBM (Transports Bordeaux Métropole) dans Home Assistant.
+Cette intégration permet de récupérer les horaires en temps réel des trams, bus et BatCub du réseau TBM (Transports Bordeaux Métropole) dans Home Assistant.
 
 ## Fonctionnalités
 
-- 🚃 Horaires en temps réel des trams
+- 🚃 Horaires en temps réel des trams (lignes A, B, C, D)
 - 🚌 Horaires en temps réel des bus
-- ⛴️ Horaires en temps réel des BatCub (bateaux)
+- ⛴️ Horaires en temps réel des BatCub (navettes fluviales)
 - 🔄 Mise à jour automatique toutes les 60 secondes
 - 📱 Configuration via l'interface utilisateur
 - 🇫🇷 Interface en français et anglais
+- ✅ Utilise l'API officielle SIRI Lite de Bordeaux Métropole
 
 ## Installation
 
@@ -34,22 +35,17 @@ Cette intégration permet de récupérer les horaires en temps réel des trams, 
 
 1. Allez dans **Paramètres** → **Appareils et services** → **Ajouter une intégration**
 2. Recherchez "TBM"
-3. Entrez l'identifiant de l'arrêt ou son nom
-4. Sélectionnez une ligne spécifique ou "Toutes les lignes"
+3. Entrez le nom de l'arrêt à rechercher (ex: "Berges du Lac", "Quinconces", "Victoire")
+4. Sélectionnez l'arrêt souhaité dans la liste des résultats
 
-### Trouver l'identifiant d'un arrêt
+### Exemples d'arrêts
 
-L'identifiant d'un arrêt suit le format : `stop_area:TBM:SA:XXXX`
-
-Exemples d'arrêts populaires :
-
-- **Quinconces** : `stop_area:TBM:SA:QUIN`
-- **Victoire** : `stop_area:TBM:SA:VICT`
-- **Pey Berland** : `stop_area:TBM:SA:PEYB`
-- **Hôtel de Ville** : `stop_area:TBM:SA:HDVI`
-- **Gare Saint-Jean** : `stop_area:TBM:SA:SAJE`
-
-Vous pouvez aussi simplement entrer le nom de l'arrêt (ex: "Quinconces") et l'intégration le recherchera automatiquement.
+- **Berges du Lac** (Tram C)
+- **Quinconces** (Trams B, C)
+- **Victoire** (Trams A, B)
+- **Pey Berland** (Tram A)
+- **Gare Saint-Jean** (Trams A, C)
+- **Place de la Bourse**
 
 ## Capteurs créés
 
@@ -62,15 +58,15 @@ Affiche le temps d'attente avant le prochain départ (toutes lignes confondues).
 **Attributs** :
 
 - `stop_name` : Nom de l'arrêt
-- `line` : Numéro de la ligne
+- `line` : Numéro/lettre de la ligne
 - `destination` : Direction/terminus
-- `departure_time` : Heure de départ prévue
 - `waiting_time` : Temps d'attente en minutes
-- `vehicle_type` : Type de véhicule (tram, bus, bateau)
 - `realtime` : Données en temps réel (true/false)
+- `aimed_time` : Heure de passage théorique
+- `expected_time` : Heure de passage estimée (temps réel)
 - `next_departures` : Liste des 5 prochains départs
 
-### Capteurs par ligne
+### Capteurs par ligne/direction
 
 Un capteur est créé pour chaque ligne/direction desservant l'arrêt, affichant le prochain départ pour cette ligne spécifique.
 
@@ -78,23 +74,23 @@ Un capteur est créé pour chaque ligne/direction desservant l'arrêt, affichant
 
 ```yaml
 type: entities
-title: Horaires TBM - Quinconces
+title: 🚃 Horaires TBM - Berges du Lac
 entities:
-  - entity: sensor.tbm_quinconces_prochain_depart
+  - entity: sensor.tbm_berges_du_lac_prochain_depart
     name: Prochain passage
-  - entity: sensor.tbm_quinconces_ligne_a_floirac_dravemont
-    name: Ligne A → Floirac
-  - entity: sensor.tbm_quinconces_ligne_b_pessac_centre
-    name: Ligne B → Pessac
+  - entity: sensor.tbm_berges_du_lac_ligne_c_blanquefort
+    name: Ligne C → Blanquefort
+  - entity: sensor.tbm_berges_du_lac_ligne_c_gare_de_blanquefort
+    name: Ligne C → Gare de Blanquefort
 ```
 
-### Carte plus avancée avec les attributs
+### Carte avec les prochains départs
 
 ```yaml
 type: markdown
-title: 🚃 Prochains trams
+title: 🚃 Prochains trams - Berges du Lac
 content: |
-  {% set sensor = states.sensor.tbm_quinconces_prochain_depart %}
+  {% set sensor = states.sensor.tbm_berges_du_lac_prochain_depart %}
   {% if sensor.attributes.next_departures %}
   | Ligne | Direction | Temps |
   |-------|-----------|-------|
@@ -115,7 +111,7 @@ automation:
   - alias: "Notification tram proche"
     trigger:
       - platform: numeric_state
-        entity_id: sensor.tbm_quinconces_prochain_depart
+        entity_id: sensor.tbm_berges_du_lac_prochain_depart
         attribute: waiting_time
         below: 5
     condition:
@@ -133,13 +129,18 @@ automation:
         data:
           title: "🚃 Tram proche !"
           message: >
-            Le tram {{ state_attr('sensor.tbm_quinconces_prochain_depart', 'line') }} 
-            arrive dans {{ state_attr('sensor.tbm_quinconces_prochain_depart', 'waiting_time') }} minutes
+            Le tram {{ state_attr('sensor.tbm_berges_du_lac_prochain_depart', 'line') }} 
+            arrive dans {{ state_attr('sensor.tbm_berges_du_lac_prochain_depart', 'waiting_time') }} minutes
+            direction {{ state_attr('sensor.tbm_berges_du_lac_prochain_depart', 'destination') }}
 ```
 
 ## API utilisée
 
-Cette intégration utilise l'API publique de TBM disponible sur `ws.infotbm.com`. Les données sont fournies par Bordeaux Métropole.
+Cette intégration utilise l'API officielle **SIRI Lite** de Bordeaux Métropole, fournie par Mecatran.
+
+- **Documentation** : [transport.data.gouv.fr](https://transport.data.gouv.fr/datasets/67f5bad303325228295b7dff)
+- **Données** : Temps réel (GTFS-RT / SIRI Lite)
+- **Fournisseur** : Bordeaux Métropole
 
 ## Contribuer
 

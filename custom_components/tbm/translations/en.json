@@ -2,23 +2,24 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configure a TBM stop",
-        "description": "Enter the TBM stop ID or name.\n\nExample: {example_stop}",
+        "title": "Search for a TBM stop",
+        "description": "Enter the name of the stop to search for.\n\nExample: {example}",
         "data": {
-          "stop_id": "Stop ID or name"
+          "query": "Stop name"
         }
       },
-      "line": {
-        "title": "Select a line",
-        "description": "Selected stop: {stop_name}\n\nChoose a specific line or all lines.",
+      "select_stop": {
+        "title": "Select a stop",
+        "description": "{count} stop(s) found. Select the one you want to add.",
         "data": {
-          "line_id": "Line"
+          "stop_id": "Stop"
         }
       }
     },
     "error": {
       "cannot_connect": "Unable to connect to TBM API",
-      "stop_not_found": "Stop not found. Check the ID or name.",
+      "stop_not_found": "No stop found. Try another name.",
+      "query_too_short": "The name must contain at least 2 characters.",
       "unknown": "Unexpected error"
     },
     "abort": {
@@ -41,4 +42,3 @@
     }
   }
 }
-

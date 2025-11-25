@@ -1,14 +1,19 @@
-"""Client API pour TBM (Transports Bordeaux Métropole)."""
+"""Client API pour TBM (Transports Bordeaux Métropole) - SIRI Lite."""
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
 
-from .const import TBM_API_BASE_URL
+from .const import (
+    TBM_API_KEY,
+    TBM_LINES_DISCOVERY_URL,
+    TBM_STOP_MONITORING_URL,
+    TBM_STOPPOINTS_DISCOVERY_URL,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -18,11 +23,13 @@ class TBMDeparture:
     """Représente un départ de tram/bus."""
 
     line: str
-    line_color: str
+    line_name: str
     destination: str
-    departure_time: str
+    direction_name: str
+    aimed_arrival: datetime | None
+    expected_arrival: datetime | None
     waiting_time_minutes: int
-    vehicle_type: str
+    stop_name: str
     realtime: bool
 
 
@@ -32,8 +39,16 @@ class TBMStop:
 
     id: str
     name: str
-    city: str
-    lines: list[dict[str, Any]]
+    lines: list[str]
+
+
+@dataclass
+class TBMLine:
+    """Représente une ligne TBM."""
+
+    id: str
+    name: str
+    destinations: list[str]
 
 
 class TBMApiError(Exception):
@@ -41,70 +56,144 @@ class TBMApiError(Exception):
 
 
 class TBMApiClient:
-    """Client pour l'API TBM."""
+    """Client pour l'API SIRI Lite TBM."""
 
     def __init__(self, session: aiohttp.ClientSession) -> None:
         """Initialiser le client API."""
         self._session = session
-        self._base_url = TBM_API_BASE_URL
 
     async def search_stops(self, query: str) -> list[TBMStop]:
         """Rechercher des arrêts par nom."""
-        url = f"{self._base_url}/network/stoparea-informations/{query}"
+        url = f"{TBM_STOPPOINTS_DISCOVERY_URL}?AccountKey={TBM_API_KEY}"
 
         try:
-            async with self._session.get(url) as response:
+            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status != 200:
                     raise TBMApiError(f"Erreur API: {response.status}")
                 data = await response.json()
 
-                stops = []
-                if isinstance(data, list):
-                    for item in data:
+                stops: list[TBMStop] = []
+                stop_refs = (
+                    data.get("Siri", {})
+                    .get("StopPointsDelivery", {})
+                    .get("AnnotatedStopPointRef", [])
+                )
+
+                query_lower = query.lower()
+                for item in stop_refs:
+                    stop_id = self._get_value(item.get("StopPointRef"))
+                    stop_name = self._get_value(item.get("StopName"))
+
+                    if query_lower in stop_name.lower():
+                        lines = []
+                        for line in item.get("Lines", {}).get("LineRef", []):
+                            line_id = self._get_value(line)
+                            if line_id:
+                                lines.append(line_id)
+
                         stops.append(
                             TBMStop(
-                                id=item.get("id", ""),
-                                name=item.get("name", ""),
-                                city=item.get("city", ""),
-                                lines=item.get("lines", []),
+                                id=stop_id,
+                                name=stop_name,
+                                lines=lines,
                             )
                         )
+
                 return stops
+
         except aiohttp.ClientError as err:
             raise TBMApiError(f"Erreur de connexion: {err}") from err
 
-    async def get_stop_info(self, stop_id: str) -> TBMStop | None:
-        """Obtenir les informations d'un arrêt."""
-        url = f"{self._base_url}/network/stoparea-informations/{stop_id}"
+    async def get_all_stops(self) -> list[TBMStop]:
+        """Obtenir tous les arrêts."""
+        url = f"{TBM_STOPPOINTS_DISCOVERY_URL}?AccountKey={TBM_API_KEY}"
 
         try:
-            async with self._session.get(url) as response:
+            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status != 200:
-                    return None
+                    raise TBMApiError(f"Erreur API: {response.status}")
                 data = await response.json()
 
-                if isinstance(data, dict):
-                    return TBMStop(
-                        id=data.get("id", stop_id),
-                        name=data.get("name", ""),
-                        city=data.get("city", ""),
-                        lines=data.get("lines", []),
+                stops: list[TBMStop] = []
+                stop_refs = (
+                    data.get("Siri", {})
+                    .get("StopPointsDelivery", {})
+                    .get("AnnotatedStopPointRef", [])
+                )
+
+                for item in stop_refs:
+                    stop_id = self._get_value(item.get("StopPointRef"))
+                    stop_name = self._get_value(item.get("StopName"))
+
+                    lines = []
+                    for line in item.get("Lines", {}).get("LineRef", []):
+                        line_id = self._get_value(line)
+                        if line_id:
+                            lines.append(line_id)
+
+                    stops.append(
+                        TBMStop(
+                            id=stop_id,
+                            name=stop_name,
+                            lines=lines,
+                        )
                     )
-                return None
+
+                return stops
+
         except aiohttp.ClientError as err:
-            _LOGGER.error("Erreur lors de la récupération de l'arrêt: %s", err)
-            return None
+            raise TBMApiError(f"Erreur de connexion: {err}") from err
+
+    async def get_lines(self) -> list[TBMLine]:
+        """Obtenir toutes les lignes."""
+        url = f"{TBM_LINES_DISCOVERY_URL}?AccountKey={TBM_API_KEY}"
+
+        try:
+            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                if response.status != 200:
+                    raise TBMApiError(f"Erreur API: {response.status}")
+                data = await response.json()
+
+                lines: list[TBMLine] = []
+                line_refs = (
+                    data.get("Siri", {})
+                    .get("LinesDelivery", {})
+                    .get("AnnotatedLineRef", [])
+                )
+
+                for item in line_refs:
+                    line_id = self._get_value(item.get("LineRef"))
+                    line_name = self._get_value(item.get("LineName"))
+
+                    destinations = []
+                    for dest in item.get("Destinations", {}).get("Destination", []):
+                        dest_name = self._get_value(dest.get("DestinationName"))
+                        if dest_name:
+                            destinations.append(dest_name)
+
+                    lines.append(
+                        TBMLine(
+                            id=line_id,
+                            name=line_name,
+                            destinations=destinations,
+                        )
+                    )
+
+                return lines
+
+        except aiohttp.ClientError as err:
+            raise TBMApiError(f"Erreur de connexion: {err}") from err
 
     async def get_realtime_departures(
         self, stop_id: str, line_id: str | None = None
     ) -> list[TBMDeparture]:
         """Récupérer les prochains départs en temps réel."""
-        url = f"{self._base_url}/get-realtime-pass/{stop_id}"
+        url = f"{TBM_STOP_MONITORING_URL}?AccountKey={TBM_API_KEY}&MonitoringRef={stop_id}"
         if line_id:
-            url = f"{url}/{line_id}"
+            url = f"{url}&LineRef={line_id}"
 
         try:
-            async with self._session.get(url) as response:
+            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status != 200:
                     raise TBMApiError(f"Erreur API: {response.status}")
 
@@ -115,30 +204,62 @@ class TBMApiClient:
             raise TBMApiError(f"Erreur de connexion: {err}") from err
 
     def _parse_departures(self, data: dict[str, Any]) -> list[TBMDeparture]:
-        """Parser les données de départ de l'API."""
+        """Parser les données de départ de l'API SIRI."""
         departures: list[TBMDeparture] = []
 
-        if not isinstance(data, dict) or "destinations" not in data:
-            return departures
+        deliveries = (
+            data.get("Siri", {})
+            .get("ServiceDelivery", {})
+            .get("StopMonitoringDelivery", [])
+        )
 
-        for destination_data in data.get("destinations", {}).values():
-            for schedule in destination_data:
+        for delivery in deliveries:
+            visits = delivery.get("MonitoredStopVisit", [])
+
+            for visit in visits:
                 try:
-                    waiting_time = self._parse_waiting_time(
-                        schedule.get("waittime", "")
+                    journey = visit.get("MonitoredVehicleJourney", {})
+                    call = journey.get("MonitoredCall", {})
+
+                    line_ref = self._get_value(journey.get("LineRef"))
+                    line_name = self._extract_line_name(line_ref)
+
+                    destination = self._get_value(
+                        journey.get("DestinationName", [{}])[0]
+                        if journey.get("DestinationName")
+                        else {}
                     )
+                    direction_name = self._get_value(
+                        journey.get("DirectionName", [{}])[0]
+                        if journey.get("DirectionName")
+                        else {}
+                    )
+                    stop_name = self._get_value(
+                        call.get("StopPointName", [{}])[0]
+                        if call.get("StopPointName")
+                        else {}
+                    )
+
+                    aimed_arrival = self._parse_datetime(call.get("AimedArrivalTime"))
+                    expected_arrival = self._parse_datetime(call.get("ExpectedArrivalTime"))
+
+                    # Calculer le temps d'attente
+                    waiting_time = self._calculate_waiting_time(expected_arrival or aimed_arrival)
+
                     departures.append(
                         TBMDeparture(
-                            line=schedule.get("ligne", ""),
-                            line_color=schedule.get("lineColor", "#000000"),
-                            destination=schedule.get("destination", ""),
-                            departure_time=schedule.get("arrival", ""),
+                            line=line_ref,
+                            line_name=line_name,
+                            destination=destination,
+                            direction_name=direction_name,
+                            aimed_arrival=aimed_arrival,
+                            expected_arrival=expected_arrival,
                             waiting_time_minutes=waiting_time,
-                            vehicle_type=schedule.get("vehicleType", "tram"),
-                            realtime=schedule.get("realtime", False),
+                            stop_name=stop_name,
+                            realtime=expected_arrival is not None,
                         )
                     )
-                except (KeyError, ValueError) as err:
+                except (KeyError, IndexError, ValueError) as err:
                     _LOGGER.warning("Erreur parsing départ: %s", err)
                     continue
 
@@ -147,33 +268,51 @@ class TBMApiClient:
         return departures
 
     @staticmethod
-    def _parse_waiting_time(waittime: str) -> int:
-        """Convertir le temps d'attente en minutes."""
-        if not waittime:
-            return 999
+    def _get_value(obj: Any) -> str:
+        """Extraire la valeur d'un objet SIRI (peut être dict ou str)."""
+        if obj is None:
+            return ""
+        if isinstance(obj, dict):
+            return obj.get("value", "")
+        return str(obj)
 
-        # Format: "HH:MM:SS" ou "MM:SS" ou "Proche"
-        if waittime.lower() in ("proche", "immin.", "imminent"):
-            return 0
+    @staticmethod
+    def _extract_line_name(line_ref: str) -> str:
+        """Extraire le nom de la ligne depuis la référence."""
+        # Format: bordeaux:Line:XX:LOC -> XX
+        if ":" in line_ref:
+            parts = line_ref.split(":")
+            if len(parts) >= 3:
+                return parts[2]
+        return line_ref
 
+    @staticmethod
+    def _parse_datetime(dt_str: str | None) -> datetime | None:
+        """Parser une date ISO 8601."""
+        if not dt_str:
+            return None
         try:
-            parts = waittime.split(":")
-            if len(parts) == 3:  # HH:MM:SS
-                return int(parts[0]) * 60 + int(parts[1])
-            elif len(parts) == 2:  # MM:SS
-                return int(parts[0])
-            else:
-                return int(waittime)
+            # Format: 2025-11-25T14:03:57Z
+            return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
         except ValueError:
+            return None
+
+    @staticmethod
+    def _calculate_waiting_time(arrival: datetime | None) -> int:
+        """Calculer le temps d'attente en minutes."""
+        if not arrival:
             return 999
+
+        now = datetime.now(timezone.utc)
+        delta = arrival - now
+        minutes = int(delta.total_seconds() / 60)
+        return max(0, minutes)
 
     async def test_connection(self) -> bool:
         """Tester la connexion à l'API."""
         try:
-            # Test avec un arrêt connu (Quinconces)
-            url = f"{self._base_url}/network/stoparea-informations/stop_area:TBM:SA:QUIN"
-            async with self._session.get(url) as response:
+            url = f"{TBM_STOPPOINTS_DISCOVERY_URL}?AccountKey={TBM_API_KEY}"
+            async with self._session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                 return response.status == 200
         except aiohttp.ClientError:
             return False
-
