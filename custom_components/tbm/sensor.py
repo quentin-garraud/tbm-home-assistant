@@ -150,6 +150,15 @@ class TBMNextDepartureSensor(TBMBaseSensor):
             next_departures.append(dep_info)
         attrs[ATTR_NEXT_DEPARTURES] = next_departures
 
+        # Attributs individuels pour les 3 prochains passages (facile à utiliser)
+        for i, dep in enumerate(departures[:3], start=1):
+            prefix = f"next_{i}"
+            attrs[f"{prefix}_line"] = dep.line_name
+            attrs[f"{prefix}_destination"] = dep.destination
+            attrs[f"{prefix}_minutes"] = dep.waiting_time_minutes
+            if dep.expected_arrival:
+                attrs[f"{prefix}_time"] = dep.expected_arrival.strftime("%H:%M")
+
         return attrs
 
     @property
@@ -249,6 +258,12 @@ class TBMLineSensor(TBMBaseSensor):
         if departures:
             attrs[ATTR_WAITING_TIME] = departures[0].waiting_time_minutes
             attrs[ATTR_REALTIME] = departures[0].realtime
+
+        # Attributs individuels pour les 3 prochains passages
+        for i, dep in enumerate(departures[:3], start=1):
+            attrs[f"next_{i}_minutes"] = dep.waiting_time_minutes
+            if dep.expected_arrival:
+                attrs[f"next_{i}_time"] = dep.expected_arrival.strftime("%H:%M")
 
         return attrs
 
