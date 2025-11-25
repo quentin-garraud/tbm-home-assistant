@@ -1,0 +1,10 @@
+{
+  "name": "TBM - Transports Bordeaux Métropole",
+  "domains": ["sensor"],
+  "documentation": "https://github.com/your-repo/tbm-home-assistant",
+  "issue_tracker": "https://github.com/your-repo/tbm-home-assistant/issues",
+  "iot_class": "cloud_polling",
+  "render_readme": true,
+  "country": "FR"
+}
+

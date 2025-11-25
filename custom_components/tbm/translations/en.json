@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configure a TBM stop",
+        "description": "Enter the TBM stop ID or name.\n\nExample: {example_stop}",
+        "data": {
+          "stop_id": "Stop ID or name"
+        }
+      },
+      "line": {
+        "title": "Select a line",
+        "description": "Selected stop: {stop_name}\n\nChoose a specific line or all lines.",
+        "data": {
+          "line_id": "Line"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to TBM API",
+      "stop_not_found": "Stop not found. Check the ID or name.",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This stop is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "TBM Options",
+        "description": "Configure options for this stop."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_departure": {
+        "name": "Next departure"
+      }
+    }
+  }
+}
+
