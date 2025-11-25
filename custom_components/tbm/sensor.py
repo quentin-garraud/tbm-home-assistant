@@ -162,12 +162,17 @@ class TBMNextDepartureSensor(TBMBaseSensor):
         if not next_dep:
             return "mdi:tram"
 
-        # Lignes de tram: A, B, C, D (ou 01, 02, 03, 04)
-        line = next_dep.line_name.upper()
-        if line in ("A", "B", "C", "D", "01", "02", "03", "04"):
+        return self._get_line_icon(next_dep.line_name)
+
+    @staticmethod
+    def _get_line_icon(line: str) -> str:
+        """Déterminer l'icône selon la ligne."""
+        line_upper = line.upper()
+        # Lignes de tram: A, B, C, D, E, F (IDs: 59, 60, 61, 62, 163, 164)
+        if line_upper in ("A", "B", "C", "D", "E", "F", "59", "60", "61", "62", "163", "164"):
             return "mdi:tram"
         # BatCub (navettes fluviales)
-        if "BAT" in line:
+        if "BAT" in line_upper:
             return "mdi:ferry"
         # Sinon c'est un bus
         return "mdi:bus"
@@ -250,9 +255,10 @@ class TBMLineSensor(TBMBaseSensor):
     @property
     def icon(self) -> str:
         """Retourner l'icône basée sur le type de ligne."""
-        line = self._line.upper()
-        if line in ("A", "B", "C", "D", "01", "02", "03", "04"):
+        line_upper = self._line.upper()
+        # Lignes de tram: A, B, C, D, E, F (IDs: 59, 60, 61, 62, 163, 164)
+        if line_upper in ("A", "B", "C", "D", "E", "F", "59", "60", "61", "62", "163", "164"):
             return "mdi:tram"
-        if "BAT" in line:
+        if "BAT" in line_upper:
             return "mdi:ferry"
         return "mdi:bus"

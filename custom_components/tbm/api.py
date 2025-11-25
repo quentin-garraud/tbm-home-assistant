@@ -249,11 +249,22 @@ class TBMApiClient:
         # Format: bordeaux:Line:XX:LOC -> XX
         if not line_ref:
             return ""
+        line_num = line_ref
         if ":" in line_ref:
             parts = line_ref.split(":")
             if len(parts) >= 3:
-                return parts[2]
-        return line_ref
+                line_num = parts[2]
+        
+        # Convertir les numéros de tram en lettres
+        tram_mapping = {
+            "59": "Tram A",
+            "60": "Tram B",
+            "61": "Tram C",
+            "62": "Tram D",
+            "163": "Tram E",
+            "164": "Tram F",
+        }
+        return tram_mapping.get(line_num, line_num)
 
     @staticmethod
     def _parse_datetime(dt_str: str | None) -> datetime | None:
