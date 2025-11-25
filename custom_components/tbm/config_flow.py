@@ -38,6 +38,7 @@ class TBMConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             query = user_input.get("query", "").strip()
+            _LOGGER.debug("Recherche d'arrêt: %s", query)
 
             if len(query) < 2:
                 errors["base"] = "query_too_short"
@@ -48,6 +49,7 @@ class TBMConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 try:
                     # Rechercher les arrêts correspondants
                     self._stops = await api.search_stops(query)
+                    _LOGGER.debug("Arrêts trouvés: %d", len(self._stops))
 
                     if not self._stops:
                         errors["base"] = "stop_not_found"
@@ -55,10 +57,11 @@ class TBMConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         # Passer à l'étape de sélection d'arrêt
                         return await self.async_step_select_stop()
 
-                except TBMApiError:
+                except TBMApiError as err:
+                    _LOGGER.error("Erreur API TBM: %s", err)
                     errors["base"] = "cannot_connect"
-                except Exception:  # pylint: disable=broad-except
-                    _LOGGER.exception("Erreur inattendue")
+                except Exception as err:
+                    _LOGGER.exception("Erreur inattendue dans config_flow: %s", err)
                     errors["base"] = "unknown"
 
         return self.async_show_form(
@@ -78,8 +81,11 @@ class TBMConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Gérer la sélection de l'arrêt parmi les résultats."""
+        errors: dict[str, str] = {}
+
         if user_input is not None:
-            stop_id = user_input[CONF_STOP_ID]
+            stop_id = user_input.get(CONF_STOP_ID)
+            _LOGGER.debug("Arrêt sélectionné: %s", stop_id)
 
             # Trouver l'arrêt sélectionné
             for stop in self._stops:
@@ -99,9 +105,11 @@ class TBMConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_STOP_NAME: self._selected_stop.name,
                     },
                 )
+            else:
+                errors["base"] = "unknown"
 
         # Construire la liste des arrêts pour la sélection
-        stop_options = []
+        stop_options: list[dict[str, str]] = []
         seen_names: dict[str, int] = {}
 
         for stop in self._stops:
@@ -116,6 +124,8 @@ class TBMConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             stop_options.append({"value": stop.id, "label": display_name})
 
+        _LOGGER.debug("Options d'arrêts: %d", len(stop_options))
+
         return self.async_show_form(
             step_id="select_stop",
             data_schema=vol.Schema(
@@ -128,6 +138,7 @@ class TBMConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     ),
                 }
             ),
+            errors=errors,
             description_placeholders={"count": str(len(self._stops))},
         )
 
